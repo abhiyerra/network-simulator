@@ -24,6 +24,16 @@ class Node
 
 end
 
+
+
+
+
+
+
+
+
+
+
 class Simulator
   def initialize num_nodes, num_buddies
     @num_nodes = num_nodes
@@ -53,5 +63,9 @@ class Simulator
 
   end
 end
+
+
+
+
 
 simulator = Simulator.new 1000, 10
