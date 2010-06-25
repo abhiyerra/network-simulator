@@ -1,5 +1,5 @@
 -module(simulator2).
--export([simulator/2, client_node/2, control_node/1, client_simulation/2]).
+-export([start/2, client_node/2, control_node/1, client_simulation/2]).
 
 
 % Data Structure
@@ -25,7 +25,6 @@ grab_buddies(Nodes, CurPos, NumBuddies) when CurPos =< length(Nodes) ->
             [node_tuple(get_node(NodeTuple), get_state(NodeTuple), Buddies)] ++ grab_buddies(Nodes, CurPos + 1, NumBuddies)
     end.
 
-
 nodes_create(0, NumBuddies) -> [];
 nodes_create(NumNodes, NumBuddies) -> 
     Node = spawn(simulator2, client_node, [none, none]),
@@ -46,21 +45,41 @@ nodes_create(NumNodes, NumBuddies) ->
 client_node(NodeTuple, Control) -> 
     receive
         {control, Control2} ->
-            io:format("Adding control to client ~w ~w~n", [NodeTuple, Control2]),
+            %io:format("Adding control to client ~w ~w~n", [NodeTuple, Control2]),
             client_node(NodeTuple, Control2);
-        {state_update, NodeTuple2} ->
+        {update_state, NodeTuple2} ->
+            %io:format("state_update 1 ~w~n", [NodeTuple2]),
+%            io:format("state_update 1 ~w~n", [NodeTuple2]),
             Control ! {notify_buddies, NodeTuple2},
+            % TODO: Action when online.
+ %           io:format("state_update 2 ~w~n", [NodeTuple2]),
             client_node(NodeTuple2, Control);
         {update_buddy_status, BuddyNodeTuple} ->
+            io:format("update_buddy_status1: ~w~n", [BuddyNodeTuple]),
             Buddy = get_node(BuddyNodeTuple),
             BuddyState = get_state(BuddyNodeTuple),
-            lists:map(fun(X) -> 
+            NodeBuddies = get_buddies(NodeTuple),
+            io:format("update_buddy_status2: ~w ~w ~w~n", [Buddy, BuddyState, NodeTuple]),
+            Buddies2 = lists:map(fun(X) -> 
                         if
                             element(1, X) == Buddy -> {Buddy, BuddyState};
                             true -> X
                         end
-                      end, get_buddies(NodeTuple))
+                      end, NodeBuddies),
+            io:format("update_buddy_status3: ~w~n", [Buddies2]),
+            NodeTuple2 = node_tuple(get_node(NodeTuple), get_state(NodeTuple), Buddies2),
+            client_node(NodeTuple2, Control)
     end.
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -70,10 +89,6 @@ client_node(NodeTuple, Control) ->
 control_node(Nodes) ->
     receive
         {populate, NumBuddies} -> 
-            % Add Control to the Client Node.
-            io:format("Loaded control node with: ~w~n", [Nodes]),
-            lists:foreach(fun(X) -> get_node(X) ! {control, self()} end, Nodes),
-
             % Set the node state
             NodesWithState = lists:map(fun(X) -> 
                                         Client = get_node(X),
@@ -96,9 +111,12 @@ control_node(Nodes) ->
             lists:foreach(fun(NodeTuple) -> spawn(simulator2, client_simulation, [NodeTuple, self()]) end, Nodes),
             control_node(Nodes);
         {state_update, NodeTuple, State} -> 
-            io:format("Entered state_update~n"),
             NodeTuple2 = node_tuple(get_node(NodeTuple), State, get_buddies(NodeTuple)),
-            get_node(NodeTuple2) ! {state_update, NodeTuple2},
+%            io:format("test123123123 ~w~n", [NodeTuple2]),
+            if 
+                State == offline -> ok;
+                true -> get_node(NodeTuple2) ! {update_state, NodeTuple2}
+            end,
             Nodes2 = lists:map(fun(X) -> 
                                     Node = get_node(NodeTuple2),
                                     NodeTupleX = get_node(X),
@@ -107,15 +125,27 @@ control_node(Nodes) ->
                                         true -> X
                                     end
                                end, Nodes),
-            io:format("Updated state_change ~w~n", [Nodes2]),
+            io:format("~w~n", [Nodes2]),
             control_node(Nodes2);
         {notify_buddies, NodeTuple} ->
+%            io:format("notify_buddies ~w~n", [NodeTuple]),
             Buddies = get_buddies(NodeTuple),
+ %           io:format("notify_buddies2 ~w~n", [Buddies]),
             State = get_state(NodeTuple),
             lists:foreach(fun(X) -> 
                             Buddy = element(1, X),
-                            Buddy ! {update_buddy_status, NodeTuple} % Send each of the buddies a status of the new update.
-                                                                     % TODO: Can't send if offline
+                            BuddyStatus = element(2, X),
+                            io:format("notify_buddies3 ~w ~w ~w~n", [NodeTuple, Buddy, BuddyStatus]),
+                            % Send each of the buddies a status of the new update only if they are online.
+                            case BuddyStatus of
+                                online ->
+  %                                  io:format("msg buddy ~w ~w~n", [Buddy, BuddyStatus]),
+                                    Buddy ! {update_buddy_status, NodeTuple}; 
+                                offline ->
+                                    ok
+ %                                   io:format("msg buddy ~w ~w~n", [Buddy, BuddyStatus])
+%                                    Buddy ! {update_buddy_status, NodeTuple} % XXX: TEMP Send each of the buddies a status of the new update.
+                            end                                    
                     end, Buddies),
             control_node(Nodes)
     end.
@@ -132,17 +162,17 @@ client_simulation(NodeTuple, Control) ->
     Buddies = get_buddies(NodeTuple),
     {A1,A2,A3} = now(),
     random:seed(A1, A2, A3), 
-    SleepTime = (random:uniform(4001) - 1), % Seconds to sleep (0..4000).
+    SleepTime = (random:uniform(4001) - 1) * 10, % Seconds to sleep (0..4000).
     io:format("Started Client ~w ~w ~w~n", [NodeTuple, SleepTime, State]),
     timer:sleep(SleepTime),
-    io:format("Client Arose ~w ~w~n", [NodeTuple, SleepTime]),
+%    io:format("Client Arose ~w ~w~n", [NodeTuple, SleepTime]),
     case State of
         offline -> 
-            io:format("Client online ~w ~w~n", [NodeTuple, SleepTime]),
+            %io:format("Client online ~w ~w~n", [NodeTuple, SleepTime]),
             Control ! {state_update, NodeTuple, online},
             client_simulation(node_tuple(Node, online, Buddies), Control);
         online -> 
-            io:format("Client offline ~w ~w~n", [NodeTuple, SleepTime]),
+            %io:format("Client offline ~w ~w~n", [NodeTuple, SleepTime]),
             Control ! {state_update, NodeTuple, offline}, % Go offline
             client_simulation(node_tuple(Node, offline, Buddies), Control)
     end.
@@ -157,12 +187,16 @@ client_simulation(NodeTuple, Control) ->
 
 
 % main
-simulator(NumNodes, NumBuddies) -> 
+start(NumNodes, NumBuddies) -> 
     EmptyNodes = nodes_create(NumNodes, NumBuddies),
     Control = spawn(simulator2, control_node, [EmptyNodes]),
+
+    % Add Control to the Client Node.
+    io:format("Loaded control node with: ~w~n", [EmptyNodes]),
+    lists:foreach(fun(X) -> get_node(X) ! {control, Control} end, EmptyNodes),
+
     Control ! {populate, NumBuddies},
-    Control ! simulate,
-    io:format("Length: ~w~n", [length(EmptyNodes)]).
+    Control ! simulate.
 
 
 
