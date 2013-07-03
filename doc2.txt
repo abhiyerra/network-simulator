@@ -1,0 +1,17 @@
+
+client_handler
+  recurse following alogrithm.
+
+
+
+client
+  update_status
+  update_buddy_status
+
+server(clients)
+  update_status
+    -> change client state
+    -> buddies each send client status
+      client ! update_buddy_status
+    -> update the clients list
+  

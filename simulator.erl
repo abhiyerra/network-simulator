@@ -1,5 +1,7 @@
+% Simulator by Abhi Yerra <abhi@berkeley.edu>
+
 -module(simulator).
--export([start/4, client_node/3, server_node/5, simulated_node/1, client_handler/1, simulation_timer/2]).
+-export([start/4, client_node/4, server_node/5, simulated_node/1, client_handler/1, simulation_timer/2]).
 
 
 % Data Structure
@@ -27,7 +29,8 @@ grab_buddies(Nodes, CurPos, NumBuddies) when CurPos =< length(Nodes) ->
 
 nodes_create(Simulated, Control, 0, NumBuddies) -> [];
 nodes_create(Simulated, Control, NumNodes, NumBuddies) -> 
-    Node = spawn(simulator, client_node, [Simulated, Control, none]),
+    TimeDict = dict:new(),
+    Node = spawn(simulator, client_node, [Simulated, Control, none, TimeDict]),
     nodes_create(Simulated, Control, NumNodes - 1, NumBuddies) ++ [node_tuple(Node, none, none)].
 
 
@@ -40,7 +43,7 @@ client_handler(Node) ->
     % Sleep for a random amount of minutes
     {A1,A2,A3} = now(),
     random:seed(A1, A2, A3), 
-    SleepTime = (random:uniform(4001) - 1), % Seconds to sleep (0..4000).
+    SleepTime = (random:uniform(4001) - 1) * 1000, % Seconds to sleep (0..4000).
  %   io:format("Sleep ~w ~w~n", [Node, SleepTime]),
     timer:sleep(SleepTime),
 
@@ -52,25 +55,35 @@ client_handler(Node) ->
 
 
 
-client_node(Simulated, Control, NodeTuple) ->
+client_node(Simulated, Control, NodeTuple, TimeDict) ->
     receive
         start ->
  %           io:format("~w~n", [NodeTuple]),
-            client_node(Simulated, Control, NodeTuple);
+            client_node(Simulated, Control, NodeTuple, TimeDict);
         {set_node_tuple, NodeTuple2} ->
-            client_node(Simulated, Control, NodeTuple2);
+            client_node(Simulated, Control, NodeTuple2, TimeDict);
         {update_state, StartTime} -> 
-  %          io:format("update_state ~w~n", [NodeTuple]),
+            %io:format("update_state ~w ~w~n ", [NodeTuple, dict:to_list(TimeDict)]),
             CurrentState = get_state(NodeTuple),
-
             NodeTuple2 = case CurrentState of
                 online -> % Make it offline
                     node_tuple(get_node(NodeTuple), offline, get_buddies(NodeTuple));
                 offline -> % Make it online
                     node_tuple(get_node(NodeTuple), online, get_buddies(NodeTuple))
             end,
-            Control ! {update_state, NodeTuple2, StartTime},
-            client_node(Simulated, Control, NodeTuple2);
+
+            % TODO: Check if sent more than 5 time this min.
+            {Hour,Min,_} = erlang:time(),
+            T = {Hour,Min},
+            TimeDict2 = dict:update_counter(T, 1, TimeDict),
+            {ok, NumReqs} = dict:find(T, TimeDict2),
+
+            if
+                % Only notify 5 times per minute. Don't want to handle erlang error so adding + 1.
+                NumReqs =< (5 + 1) -> Control ! {update_state, NodeTuple2, StartTime};
+                true -> ok
+            end,
+            client_node(Simulated, Control, NodeTuple2, TimeDict2);
         {update_buddy_state, Buddy, State} ->
             Buddies = get_buddies(NodeTuple),
             Buddies2 = lists:map(fun(X) ->
@@ -81,10 +94,10 @@ client_node(Simulated, Control, NodeTuple) ->
                                     end
                                   end, Buddies),
             NodeTuple2 = node_tuple(get_node(NodeTuple), get_state(NodeTuple), Buddies2),
-            client_node(Simulated, Control, NodeTuple2);
+            client_node(Simulated, Control, NodeTuple2, TimeDict);
         _ ->
             io:format("me ~w ~w~n", [Control, NodeTuple]),
-            client_node(Simulated, Control, NodeTuple)
+            client_node(Simulated, Control, NodeTuple, TimeDict)
     end.
 
 
@@ -115,7 +128,6 @@ server_node(Simulated, Clients, PacketLoss, MessagesSent, MessagesFailed) ->
             Buddies = lists:map(fun(X) -> get_buddies_from_client(Clients, X) end, Buddies0),
 
             NodeTuple2 = node_tuple(Node, State, Buddies),
-%            Node ! {update_buddies, Buddies} % TODO.
 
             % Ignore for the first 100 messages simulate failure after that.
             Fail = (MessagesSent > 100) and (element(1, PacketLoss) / element(2, PacketLoss) > MessagesFailed / MessagesSent),
@@ -180,7 +192,7 @@ simulated_node(MessageTimes) ->
             D = dict:new(),
             MessagePerMinute = get_message_per_minute(MessagesPerMinuteTimes, D),
             io:format("Messages per Minute : ~w~n", [MessagePerMinute]),
-
+            timer:sleep(10),
             erlang:halt()
     end.
 

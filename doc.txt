@@ -1,0 +1,47 @@
+-> THe simulator starts a bunch of nodes each with a set amount of buddies.
+    Use the algorithm to change the node's presence.
+        when offline -> update server as offline.
+            server notifies buddy of offline status
+                if server sees buddy as offline don't send a message.
+        if online -> update server as online.
+            get statuses of buddies.
+                request buddy statuses.
+            server notifies buddy of online status
+
+Node
+    -> carries its state
+    -> carries its buddies
+
+Control
+    -> carries all nodes states
+
+
+Data Structure
+
+{Client, Status, Buddies}
+
+
+update state to onnline X
+    - Control pings client as online
+        Client changes state to online
+        Control changes state of Node to online.
+    - Client pings Control to update buddies
+        - Control pings buddies with the new statuses
+
+update state to offline
+    - Control takes node as offline.
+    - Control pings buddies to notify as offline.
+
+
+
+
+% Done: Start the nodes returning pids for each node which has been started.
+% Done: Start the control center for routing info.
+% Done: For each of the nodes notify it of the Control.
+    % Done: The Node should send the buddies. The Control should keep a dictionary of (buddy) -> clients.
+% start Pids of nodes to send/receive messages.
+
+
+
+control calls itself and does state_update on server
+    server calls client->state_update
